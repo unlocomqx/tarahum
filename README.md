@@ -6,14 +6,18 @@ Browser prototype that counts prayer rakaat from the device camera.
 
 ## How it works
 
-SvelteKit (SPA via adapter-static) + MediaPipe Pose Landmarker + XState v5.
-
-1. `src/lib/posture.ts` — classifies MediaPipe Pose landmarks into `qiyam`, `ruku`, `sujud`, `jalsa` or `unknown` from the more visible body side (torso angle from vertical, knee angle, head below hips).
-2. `src/lib/rakaatMachine.ts` — XState v5 parallel machine:
+1. `src/lib/rakaatMachine.ts` — XState v5 parallel machine, shared by both placements:
    - `detector` debounces raw postures and raises `STABLE` once a posture holds for `minHoldMs`.
    - `rakah` follows ruku → sujud → sujud and counts one rakah.
-3. `src/lib/camera.ts` — camera, detection loop, skeleton overlay.
-4. `src/routes/+page.svelte` — counter, posture, phase, hold slider, reset, live angles.
+2. `src/lib/middle.ts` + `middleDetector.ts` — **Middle** placement (default):
+   - Cover signal: mean light and contrast of a tiny thumbnail. Covered → `sujud`.
+   - Face signal: MediaPipe Face Detector, eye distance relative to frame size. The face gets bigger as the head comes closer to the phone.
+   - Calibration: the first 30 frames with a face (user standing) set the baseline light and face size. Reset recalibrates.
+   - Face near baseline → `qiyam`. Face bigger than `lowered` × baseline → `ruku`, or `jalsa` when the last stable posture was `sujud`/`jalsa` (both look the same from below).
+   - Rotation search: the phone can lie in any direction, so the detector tries the frame at 0/90/180/270° until it finds a face.
+3. `src/lib/posture.ts` + `sideDetector.ts` — **Side** placement: MediaPipe Pose, torso and knee angles from a side profile view.
+4. `src/lib/camera.ts` — camera, screen wake lock, frame loop.
+5. `src/routes/+page.svelte` — counter, placement switch, posture, phase, sliders, reset, live debug readout.
 
 ## Run
 
@@ -28,14 +32,20 @@ Add `?inspect` to the URL to open the Stately inspector.
 
 ## Camera placement
 
-- Place the phone to the side of the user (profile view), about 2–3 m away.
-- Keep it low (floor to knee height) so sujud is fully visible.
-- The whole body must stay in frame in every posture.
-- Use good, even light.
+Target setup: the phone lies flat on the prayer carpet, screen up, so the front camera looks at the ceiling. Two positions:
+
+- **Middle** — in the centre of the carpet, between the standing spot and the sujud spot. The user's body covers the camera in sujud.
+- **Side** — on the edge of the carpet, beside the user. The camera sees the user from below and from the side.
+
+The phone's rotation on the carpet is not fixed (portrait or landscape, any direction).
+
+**Middle** mode targets the flat, middle position. **Side** mode still assumes an upright phone with a side profile view (2–3 m away, low height); it does not fit the flat-on-carpet side position yet.
 
 ## Thresholds
 
-Starting values in `src/lib/posture.ts`:
+Middle: `lowered` 1.3 (face size ratio) and `cover` 0.4 (light ratio), tunable with sliders.
+
+Side, in `src/lib/posture.ts`:
 
 | Posture | Rule |
 | --- | --- |
